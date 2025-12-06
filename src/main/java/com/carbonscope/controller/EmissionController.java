@@ -8,7 +8,6 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api/emissions")
 @RequiredArgsConstructor
-@CrossOrigin(origins = "*")
 public class EmissionController {
 
     private final EmissionAnalyticsService service;
