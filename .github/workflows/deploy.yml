@@ -45,5 +45,7 @@ jobs:
           region: ${{ env.REGION }}
           image: ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.GAR_REPO }}/${{ env.SERVICE }}:${{ github.sha }}
           # Pass the Secret and Port
-          env_vars: GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
+          secrets: |
+            GEMINI_API_KEY=gemini-api-key:latest
+            
           flags: '--port=8082'
