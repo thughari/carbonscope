@@ -48,4 +48,4 @@ jobs:
           secrets: |
             GEMINI_API_KEY=gemini-api-key:latest
             
-          flags: '--port=8082'
+          flags: '--port=8080'
