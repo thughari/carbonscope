@@ -1,7 +1,11 @@
 package com.carbonscope.service;
 
 import com.carbonscope.client.ClimateTraceClient;
-import com.carbonscope.dto.*;
+import com.carbonscope.dto.ContinentSummaryResponse;
+import com.carbonscope.dto.CountrySummaryResponse;
+import com.carbonscope.dto.SectorSummaryResponse;
+import com.carbonscope.dto.SourcesResponse;
+import com.carbonscope.dto.SubsectorSummaryResponse;
 import com.carbonscope.model.EmissionSource;
 import com.carbonscope.util.ContinentUtil;
 import lombok.RequiredArgsConstructor;
@@ -19,6 +23,10 @@ public class EmissionAnalyticsService {
 	private List<EmissionSource> filterByCountryAndContinent(List<EmissionSource> sources,
 			String country,
 			String continent) {
+		if (sources == null || sources.isEmpty()) {
+			return Collections.emptyList();
+		}
+
 		return sources.stream()
 				.filter(src -> {
 					if (country != null && !country.isBlank()) {
@@ -40,6 +48,8 @@ public class EmissionAnalyticsService {
 			Integer limit) throws Exception {
 
 		List<EmissionSource> sources = client.fetchSources(year, country, continent, null, null, gas, limit);
+
+		if (sources == null) sources = Collections.emptyList();
 
 		List<EmissionSource> filtered = filterByCountryAndContinent(sources, country, continent);
 
@@ -70,6 +80,8 @@ public class EmissionAnalyticsService {
 		}
 
 		List<EmissionSource> sources = client.fetchSources(year, country, continent, sector, null, gas, limit);
+		if (sources == null) sources = Collections.emptyList();
+
 		List<EmissionSource> filtered = filterByCountryAndContinent(sources, country, continent);
 
 		Map<String, Double> subsectorTotals = filtered.stream()
@@ -95,6 +107,8 @@ public class EmissionAnalyticsService {
 			Integer limit) throws Exception {
 
 		List<EmissionSource> sources = client.fetchSources(year, null, continent, sector, null, gas, limit);
+
+		if (sources == null) sources = Collections.emptyList();
 
 		List<EmissionSource> filtered = sources.stream()
 				.filter(src -> {
@@ -128,6 +142,8 @@ public class EmissionAnalyticsService {
 
 		List<EmissionSource> sources = client.fetchSources(year, null, null, sector, null, gas, limit);
 
+		if (sources == null) sources = Collections.emptyList();
+
 		Map<String, Double> continentTotals = sources.stream()
 				.collect(Collectors.groupingBy(
 						src -> ContinentUtil.getContinent(src.getCountry()),
@@ -153,6 +169,8 @@ public class EmissionAnalyticsService {
 			Integer limit) throws Exception {
 
 		List<EmissionSource> sources = client.fetchSources(year, country, continent, sector, subsector, gas, limit);
+		if (sources == null) sources = Collections.emptyList();
+
 		List<EmissionSource> filtered = filterByCountryAndContinent(sources, country, continent);
 
 		SourcesResponse res = new SourcesResponse();

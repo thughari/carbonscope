@@ -2,11 +2,9 @@ package com.carbonscope.controller;
 
 import com.carbonscope.dto.ChatRequest;
 import com.carbonscope.service.GeminiService;
-import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
 
-import java.util.Map;
 
 @RestController
 @RequestMapping("/api/ai")
