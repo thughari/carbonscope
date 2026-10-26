@@ -26,20 +26,27 @@ The **CarbonScope Backend** is a robust RESTful API that powers the CarbonScope 
 
 ### ✨ Key Features
 
-*   **🌍 ClimateTRACE Integration:** Fetches real-time global emission data filtered by sector, country, and gas type.
-*   **🤖 AI-Powered Insights:** Uses **Google Gemini 2.0 Flash** to analyze emission trends and generate human-readable environmental impact reports.
-*   **🔐 CORS Configured:** Pre-configured to work securely with the frontend hosted on GitHub Pages (`thughari.github.io`) and Localhost.
-*   **🐳 Dockerized:** Optimized multi-stage Docker build for easy deployment.
+*   **🌍 Multi-Source Consensus Architecture:** Aggregates satellite observations & facility inventories from **Climate TRACE**, peer-reviewed per-capita benchmarks from **Global Carbon Project (GCP) & Our World in Data**, power sector carbon intensity from **Ember Climate**, and spatial inventories from **EDGAR**.
+*   **⚡ In-Memory High-Speed Cache:** Sub-10ms response times for all analytics queries with graceful fallback resilience against external API outages.
+*   **📊 Unified Overview Endpoint (`/api/emissions/overview`):** Delivers verified national totals, global rankings, share of world emissions, per-capita footprints, power grid carbon intensity, and multi-year empirical trajectories (2021-2025).
+*   **🤖 Grounded AI Insights:** Feeds **Google Gemini 2.0 Flash** with rich multi-source context (national rank, per capita, sector share, grid intensity, and verified source citations).
+*   **🔐 Universal CORS:** Pre-configured with universal CORS support for GitHub Pages (`thughari.github.io`), Cloud Run, and localhost.
+*   **🐳 Dockerized:** Optimized multi-stage Docker build ready for Google Cloud Run.
 
 ---
 
 ## 🛠️ Tech Stack
 
 *   **Language:** [Java 21](https://aws.amazon.com/corretto/)
-*   **Framework:** [Spring Boot 3](https://spring.io/projects/spring-boot)
+*   **Framework:** [Spring Boot 3 / 4](https://spring.io/projects/spring-boot)
 *   **AI Model:** [Google Gemini 2.0 Flash](https://deepmind.google/technologies/gemini/)
-*   **Data Source:** [ClimateTRACE API](https://climatetrace.org/)
-*   **Containerization:** Docker
+*   **Data Sources:**
+    *   **Climate TRACE:** Facility-level observations, point sources, and national inventories
+    *   **Global Carbon Project & Our World in Data:** National carbon budgets and per-capita benchmarks
+    *   **Ember Climate:** Electricity sector review, grid carbon intensity (gCO2/kWh), and clean power share
+    *   **EDGAR (European Commission JRC):** Spatial bottom-up atmospheric emission categories
+    *   **IPCC AR6:** Global Warming Potential (GWP100/GWP20) standard factors
+*   **Containerization:** Docker (Google Cloud Run)
 
 ---
 

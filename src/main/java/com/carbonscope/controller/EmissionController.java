@@ -2,8 +2,11 @@ package com.carbonscope.controller;
 
 import com.carbonscope.dto.*;
 import com.carbonscope.service.EmissionAnalyticsService;
+import com.carbonscope.service.ReliableCarbonSourcesService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/emissions")
@@ -11,6 +14,22 @@ import org.springframework.web.bind.annotation.*;
 public class EmissionController {
 
     private final EmissionAnalyticsService service;
+    private final ReliableCarbonSourcesService reliableSourcesService;
+
+    @GetMapping("/overview")
+    public EmissionsOverviewResponse getOverview(
+            @RequestParam(required = false) Integer year,
+            @RequestParam(required = false) String country,
+            @RequestParam(required = false) String continent,
+            @RequestParam(required = false) String gas
+    ) {
+        return service.getEmissionsOverview(year, country, continent, gas);
+    }
+
+    @GetMapping("/sources-info")
+    public SourcesInfoResponse getSourcesInfo() {
+        return reliableSourcesService.getSourcesInfoResponse();
+    }
 
     @GetMapping("/sectors")
     public SectorSummaryResponse getSectors(
