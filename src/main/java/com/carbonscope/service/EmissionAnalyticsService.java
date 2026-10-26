@@ -244,8 +244,9 @@ public class EmissionAnalyticsService {
             sectorTotals.put("waste", baseTonnes * 0.04);
         }
 
-        // Sort descending by emissions quantity
+        // Sort descending by emissions quantity and filter out non-positive
         Map<String, Double> sorted = sectorTotals.entrySet().stream()
+                .filter(e -> e.getValue() != null && e.getValue() > 0)
                 .sorted(Map.Entry.comparingByValue(Comparator.reverseOrder()))
                 .collect(Collectors.toMap(
                         Map.Entry::getKey,
@@ -478,39 +479,58 @@ public class EmissionAnalyticsService {
         if (rawSector == null) return "other";
         String s = rawSector.toLowerCase();
 
-        if (s.contains("electric") || s.contains("power") || s.contains("heat-plant")) {
+        // 1. Power & Energy
+        if (s.contains("electric") || s.contains("power") || s.contains("heat-plant")
+                || s.contains("energy-use") || s.contains("solid-fuel") || s.contains("reservoir")) {
             return "power";
         }
+
+        // 2. Heavy & Light Industry / Manufacturing
         if (s.contains("steel") || s.contains("cement") || s.contains("aluminum")
                 || s.contains("chemical") || s.contains("glass") || s.contains("paper")
-                || s.contains("manufactur") || s.contains("metal")) {
+                || s.contains("manufactur") || s.contains("metal") || s.contains("textile")
+                || s.contains("apparel") || s.contains("leather") || s.contains("tobacco")
+                || s.contains("beverage") || s.contains("food") || s.contains("lime")
+                || s.contains("wood") || s.contains("petrochem") || s.contains("mining")
+                || s.contains("quarry")) {
             return "industry";
         }
+
+        // 3. Transportation
         if (s.contains("transport") || s.contains("aviation") || s.contains("shipping")
                 || s.contains("railway") || s.contains("road") || s.contains("vessel")) {
             return "transportation";
         }
+
+        // 4. Agriculture & Livestock
         if (s.contains("rice") || s.contains("fertiliz") || s.contains("ferment")
-                || s.contains("manure") || s.contains("agricult") || s.contains("crop")) {
+                || s.contains("manure") || s.contains("agricult") || s.contains("crop")
+                || s.contains("cattle") || s.contains("soil-emission")) {
             return "agriculture";
         }
-        if (s.contains("oil") || s.contains("gas") || s.contains("coal")
-                || s.contains("fossil") || s.contains("petrochem")) {
+
+        // 5. Fossil Fuel Operations (Extraction, Refining, Transport)
+        if (s.contains("oil") || s.contains("gas") || s.contains("coal") || s.contains("fossil")) {
             return "fossil-fuel-operations";
         }
-        if (s.contains("waste") || s.contains("landfill") || s.contains("incinerat")) {
+
+        // 6. Waste Management
+        if (s.contains("waste") || s.contains("landfill") || s.contains("incinerat")
+                || s.contains("discharge") || s.contains("biogenic")) {
             return "waste";
         }
+
+        // 7. Residential & Commercial Buildings
         if (s.contains("resident") || s.contains("building") || s.contains("onsite-fuel")) {
             return "buildings";
         }
-        if (s.contains("forest") || s.contains("land") || s.contains("soil") || s.contains("shrub")) {
+
+        // 8. Forestry & Land Use
+        if (s.contains("forest") || s.contains("land") || s.contains("soil") || s.contains("shrub")
+                || s.contains("wetland") || s.contains("removal")) {
             return "forestry-and-land-use";
         }
-        if (s.contains("mining") || s.contains("quarry")) {
-            return "mineral-extraction";
-        }
 
-        return s;
+        return "industry";
     }
 }
