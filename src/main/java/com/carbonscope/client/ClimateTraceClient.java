@@ -31,8 +31,16 @@ public class ClimateTraceClient {
 
     private final ObjectMapper mapper = new ObjectMapper();
 
+    public static int resolveYear(Integer year) {
+        int currentYear = java.time.Year.now().getValue();
+        if (year != null && year >= 2015 && year <= currentYear + 1) {
+            return year;
+        }
+        return currentYear;
+    }
+
     public CountryEmissionsRecord fetchCountryEmissions(Integer year, String country) {
-        int finalYear = (year != null && year >= 2021) ? year : 2024;
+        int finalYear = resolveYear(year);
         StringBuilder url = new StringBuilder(COUNTRY_EMISSIONS_URL)
                 .append("?since=").append(finalYear)
                 .append("&to=").append(finalYear);
@@ -71,7 +79,7 @@ public class ClimateTraceClient {
     }
 
     public List<AssetSectorRecord> fetchAssetSectorEmissions(Integer year, String country, String gas) {
-        int finalYear = (year != null && year >= 2021) ? year : 2024;
+        int finalYear = resolveYear(year);
         String finalGas = (gas != null && !gas.isBlank()) ? gas : "co2e_100yr";
 
         StringBuilder url = new StringBuilder(ASSETS_EMISSIONS_URL)
@@ -135,7 +143,7 @@ public class ClimateTraceClient {
                                              Integer limit) throws Exception {
 
         int finalLimit = (limit != null && limit > 0) ? limit : 4000;
-        int finalYear = (year != null && year >= 2021) ? year : 2024;
+        int finalYear = resolveYear(year);
         String finalGas = (gas != null && !gas.isBlank()) ? gas : "co2e_100yr";
 
         StringBuilder url = new StringBuilder(SOURCES_URL)

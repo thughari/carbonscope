@@ -11,7 +11,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 @Service
 @RequiredArgsConstructor
@@ -32,7 +34,7 @@ public class EmissionAnalyticsService {
                                                           String continent,
                                                           String gas) {
         long start = System.currentTimeMillis();
-        int finalYear = (year != null && year >= 2021) ? year : 2024;
+        int finalYear = ClimateTraceClient.resolveYear(year);
         String finalGas = (gas != null && !gas.isBlank()) ? gas : "co2e_100yr";
         String countryCode = (country != null && !country.isBlank()) ? country.toUpperCase() : null;
 
@@ -148,47 +150,57 @@ public class EmissionAnalyticsService {
         List<TrendPointDto> cached = cacheService.get(cacheKey);
         if (cached != null) return cached;
 
-        List<TrendPointDto> list = new ArrayList<>();
-        int[] years = {2021, 2022, 2023, 2024, 2025};
+        int startYear = 2015;
+        int endYear = ClimateTraceClient.resolveYear(null);
+        List<Integer> yearList = IntStream.rangeClosed(startYear, endYear).boxed().toList();
 
-        for (int y : years) {
-            double cMt = 0;
-            double wMt = 0;
-            try {
-                if (countryCode != null) {
-                    CountryEmissionsRecord rec = client.fetchCountryEmissions(y, countryCode);
-                    if (rec != null && rec.getEmissions() != null) {
-                        cMt = rec.getEmissions().getOrDefault(gas, rec.getEmissions().getOrDefault("co2e_100yr", 0.0)) / 1_000_000.0;
-                    }
-                    if (rec != null && rec.getWorldEmissions() != null) {
-                        wMt = rec.getWorldEmissions().getOrDefault(gas, rec.getWorldEmissions().getOrDefault("co2e_100yr", 0.0)) / 1_000_000.0;
-                    }
-                } else {
-                    CountryEmissionsRecord rec = client.fetchCountryEmissions(y, null);
-                    if (rec != null && rec.getEmissions() != null) {
-                        cMt = rec.getEmissions().getOrDefault(gas, rec.getEmissions().getOrDefault("co2e_100yr", 0.0)) / 1_000_000.0;
-                        wMt = cMt;
-                    }
-                }
-            } catch (Exception e) {
-                log.debug("Trend year fetch failed for {}: {}", y, e.getMessage());
-            }
+        List<CompletableFuture<TrendPointDto>> futures = yearList.stream()
+                .map(y -> CompletableFuture.supplyAsync(() -> fetchSingleYearTrendPoint(y, countryCode, gas)))
+                .toList();
 
-            if (cMt <= 0) {
-                // Calibrated historical projection if year is unavailable
-                Double baseline = reliableSources.getBaselineTotalMt(countryCode);
-                double base = baseline != null ? baseline : (countryCode == null ? 57582.0 : 450.0);
-                double factor = 1.0 + (y - 2024) * 0.015;
-                cMt = base * factor;
-                wMt = 57582.0 * factor;
-            }
-
-            double share = (wMt > 0) ? (cMt / wMt) * 100.0 : 0.0;
-            list.add(new TrendPointDto(y, cMt, wMt, share));
-        }
+        List<TrendPointDto> list = futures.stream()
+                .map(CompletableFuture::join)
+                .sorted(Comparator.comparingInt(TrendPointDto::getYear))
+                .collect(Collectors.toList());
 
         cacheService.put(cacheKey, list);
         return list;
+    }
+
+    private TrendPointDto fetchSingleYearTrendPoint(int y, String countryCode, String gas) {
+        double cMt = 0;
+        double wMt = 0;
+        try {
+            if (countryCode != null) {
+                CountryEmissionsRecord rec = client.fetchCountryEmissions(y, countryCode);
+                if (rec != null && rec.getEmissions() != null) {
+                    cMt = rec.getEmissions().getOrDefault(gas, rec.getEmissions().getOrDefault("co2e_100yr", 0.0)) / 1_000_000.0;
+                }
+                if (rec != null && rec.getWorldEmissions() != null) {
+                    wMt = rec.getWorldEmissions().getOrDefault(gas, rec.getWorldEmissions().getOrDefault("co2e_100yr", 0.0)) / 1_000_000.0;
+                }
+            } else {
+                CountryEmissionsRecord rec = client.fetchCountryEmissions(y, null);
+                if (rec != null && rec.getEmissions() != null) {
+                    cMt = rec.getEmissions().getOrDefault(gas, rec.getEmissions().getOrDefault("co2e_100yr", 0.0)) / 1_000_000.0;
+                    wMt = cMt;
+                }
+            }
+        } catch (Exception e) {
+            log.debug("Trend year fetch failed for {}: {}", y, e.getMessage());
+        }
+
+        if (cMt <= 0) {
+            // Calibrated historical projection if year is unavailable
+            Double baseline = reliableSources.getBaselineTotalMt(countryCode);
+            double base = baseline != null ? baseline : (countryCode == null ? 57582.0 : 450.0);
+            double factor = 1.0 + (y - 2024) * 0.015;
+            cMt = base * factor;
+            wMt = 57582.0 * factor;
+        }
+
+        double share = (wMt > 0) ? (cMt / wMt) * 100.0 : 0.0;
+        return new TrendPointDto(y, cMt, wMt, share);
     }
 
     public SectorSummaryResponse getSectorSummary(Integer year,
@@ -197,7 +209,7 @@ public class EmissionAnalyticsService {
                                                   String gas,
                                                   Integer limit) throws Exception {
 
-        int finalYear = (year != null && year >= 2021) ? year : 2024;
+        int finalYear = ClimateTraceClient.resolveYear(year);
         String finalGas = (gas != null && !gas.isBlank()) ? gas : "co2e_100yr";
         String countryCode = (country != null && !country.isBlank()) ? country.toUpperCase() : null;
 
@@ -277,7 +289,7 @@ public class EmissionAnalyticsService {
             throw new IllegalArgumentException("sector is required for subsector view");
         }
 
-        int finalYear = (year != null && year >= 2021) ? year : 2024;
+        int finalYear = ClimateTraceClient.resolveYear(year);
         String finalGas = (gas != null && !gas.isBlank()) ? gas : "co2e_100yr";
         String countryCode = (country != null && !country.isBlank()) ? country.toUpperCase() : null;
 
@@ -366,7 +378,7 @@ public class EmissionAnalyticsService {
                                                     String gas,
                                                     Integer limit) throws Exception {
 
-        int finalYear = (year != null && year >= 2021) ? year : 2024;
+        int finalYear = ClimateTraceClient.resolveYear(year);
         String finalGas = (gas != null && !gas.isBlank()) ? gas : "co2e_100yr";
 
         String cacheKey = "countries_" + finalYear + "_" + continent + "_" + sector + "_" + finalGas;
@@ -403,7 +415,7 @@ public class EmissionAnalyticsService {
                                                         String gas,
                                                         Integer limit) throws Exception {
 
-        int finalYear = (year != null && year >= 2021) ? year : 2024;
+        int finalYear = ClimateTraceClient.resolveYear(year);
         String finalGas = (gas != null && !gas.isBlank()) ? gas : "co2e_100yr";
 
         String cacheKey = "continents_" + finalYear + "_" + sector + "_" + finalGas;

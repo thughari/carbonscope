@@ -1,5 +1,6 @@
 package com.carbonscope.service;
 
+import com.carbonscope.client.ClimateTraceClient;
 import com.carbonscope.dto.ChatRequest;
 import com.carbonscope.dto.EmissionsOverviewResponse;
 import com.carbonscope.dto.TrendPointDto;
@@ -88,7 +89,7 @@ public class GeminiService {
     }
 
     private GenerateContentConfig buildDataConfig(String country, String continent, Integer year) {
-        int finalYear = (year != null && year >= 2021) ? year : 2024;
+        int finalYear = ClimateTraceClient.resolveYear(year);
         EmissionsOverviewResponse overview = analyticsService.getEmissionsOverview(finalYear, country, continent, "co2e_100yr");
 
         String locationLabel = overview.getCountryName() != null ? overview.getCountryName() : "the World (Global View)";
@@ -132,7 +133,7 @@ public class GeminiService {
                 --- SECTORAL BREAKDOWN ---
                 %s
 
-                --- HISTORICAL TREND (2021-2025) ---
+                --- HISTORICAL TREND (2015-Present) ---
                 %s
 
                 --- INSTRUCTIONS ---
@@ -156,7 +157,7 @@ public class GeminiService {
     }
 
     private String generateLocalFallbackResponse(ChatRequest request) {
-        int year = (request.year() != null && request.year() >= 2021) ? request.year() : 2024;
+        int year = ClimateTraceClient.resolveYear(request.year());
         EmissionsOverviewResponse overview = analyticsService.getEmissionsOverview(year, request.country(), request.continent(), "co2e_100yr");
 
         String loc = overview.getCountryName() != null ? overview.getCountryName() : "Global";
