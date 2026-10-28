@@ -1,5 +1,6 @@
 package com.carbonscope.dto.simulator;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -9,6 +10,7 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class DecarbonizationImpactDto {
     // Primary metrics matching selected accounting boundary (for UI/API compatibility)
     private double grossAvoidedEmissionsMt;
@@ -29,7 +31,7 @@ public class DecarbonizationImpactDto {
     private double grossDisplacedLifecycleMt;
     private double cleanEmbodiedLifecycleMt;
     private double netAvoidedLifecycleMt;
-    private boolean netNegativeAbatement;
+    private Boolean netNegativeAbatement;
     private String netAbatementWarning;
     private String simulatedMetricsUnavailableReason;
 
@@ -40,6 +42,14 @@ public class DecarbonizationImpactDto {
     private java.util.List<InterventionResultDto> itemizedInterventions;
     private double totalDisplacedFossilGenerationTwh;
     private double totalUnusedCleanGenerationTwh;
-    private boolean constraintsApplied;
+    private Boolean constraintsApplied;
     private String dispatchConstraintSummary;
+
+    public boolean isNetNegativeAbatement() {
+        return Boolean.TRUE.equals(netNegativeAbatement);
+    }
+
+    public boolean isConstraintsApplied() {
+        return Boolean.TRUE.equals(constraintsApplied);
+    }
 }

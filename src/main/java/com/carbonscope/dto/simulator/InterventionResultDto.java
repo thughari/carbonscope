@@ -1,5 +1,7 @@
 package com.carbonscope.dto.simulator;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -13,8 +15,9 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class InterventionResultDto {
-    private int interventionIndex;
+    private Integer interventionIndex;
     private String interventionId;
     private String cleanSource;
     private String cleanSourceDisplayName;
@@ -37,6 +40,12 @@ public class InterventionResultDto {
     private double sensitivityMaxMt;
 
     // Constraint and dispatch flags
-    private boolean isCapped;
+    @JsonProperty("isCapped")
+    private Boolean isCapped;
     private String constraintNote;
+
+    @JsonProperty("isCapped")
+    public boolean isCapped() {
+        return Boolean.TRUE.equals(isCapped);
+    }
 }

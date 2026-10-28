@@ -233,7 +233,7 @@ public class DecarbonizationSimulatorService {
 
         if (isSingleLegacy) {
             String unit = request.getGenerationUnit().trim().toUpperCase();
-            double amount = request.getGenerationAmount();
+            double amount = request.getGenerationAmount() != null ? request.getGenerationAmount() : 0.0;
             double genTwh = "GWH".equals(unit) ? (amount / 1000.0) : amount;
             String displacedFuel = request.getDisplacedFuel().trim().toUpperCase();
             double maxAvailableTwh = getAvailableFossilGeneration(profile, displacedFuel);
@@ -1080,7 +1080,7 @@ public class DecarbonizationSimulatorService {
                 if (item.getTargetDisplacedFuel() == null || item.getTargetDisplacedFuel().isBlank()) {
                     throw new SimulatorValidationException("Target displaced fuel is required for intervention #" + (i + 1) + ".");
                 }
-                if (!Double.isFinite(item.getGenerationAmount()) || item.getGenerationAmount() <= 0) {
+                if (item.getGenerationAmount() == null || !Double.isFinite(item.getGenerationAmount()) || item.getGenerationAmount() <= 0) {
                     throw new SimulatorValidationException("Generation amount must be strictly positive (> 0) and finite for intervention #" + (i + 1) + ".");
                 }
                 String u = item.getGenerationUnit() != null ? item.getGenerationUnit().trim().toUpperCase() : "TWH";
@@ -1102,7 +1102,7 @@ public class DecarbonizationSimulatorService {
             if (req.getReplacementCleanSource() == null || req.getReplacementCleanSource().isBlank()) {
                 throw new SimulatorValidationException("Replacement clean source is required. Supported: ['SOLAR_PV', 'WIND_ONSHORE', 'WIND_OFFSHORE', 'NUCLEAR', 'HYDRO'].");
             }
-            if (!Double.isFinite(req.getGenerationAmount()) || req.getGenerationAmount() <= 0) {
+            if (req.getGenerationAmount() == null || !Double.isFinite(req.getGenerationAmount()) || req.getGenerationAmount() <= 0) {
                 throw new SimulatorValidationException("Generation amount must be strictly positive (> 0) and finite. Received: " + req.getGenerationAmount());
             }
             if (req.getGenerationUnit() == null || req.getGenerationUnit().isBlank()) {

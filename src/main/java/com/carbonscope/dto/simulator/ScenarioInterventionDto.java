@@ -24,7 +24,7 @@ public class ScenarioInterventionDto {
     /**
      * Generation amount requested.
      */
-    private double generationAmount;
+    private Double generationAmount;
     
     /**
      * Generation unit: 'TWH' or 'GWH'. Defaults to 'TWH'.

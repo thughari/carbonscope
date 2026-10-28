@@ -13,7 +13,7 @@ public class DecarbonizationScenarioRequest {
     private String countryCode;
     private String displacedFuel;
     private String replacementCleanSource;
-    private double generationAmount;
+    private Double generationAmount;
     private String generationUnit;
     
     /**
