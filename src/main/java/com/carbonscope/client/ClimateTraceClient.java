@@ -25,6 +25,10 @@ public class ClimateTraceClient {
     private static final String COUNTRY_EMISSIONS_URL = "https://api.climatetrace.org/v6/country/emissions";
     private static final String ASSETS_EMISSIONS_URL = "https://api.climatetrace.org/v6/assets/emissions";
 
+    public static final int EARLIEST_YEAR = 2015;
+    public static final int LATEST_VERIFIED_YEAR = 2026;
+    public static final int DEFAULT_YEAR = 2024;
+
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(8))
             .build();
@@ -32,15 +36,26 @@ public class ClimateTraceClient {
     private final ObjectMapper mapper = new ObjectMapper();
 
     public static int resolveYear(Integer year) {
-        int currentYear = java.time.Year.now().getValue();
-        if (year != null && year >= 2015 && year <= currentYear + 1) {
+        if (year != null) {
             return year;
         }
-        return currentYear;
+        return DEFAULT_YEAR;
+    }
+
+    public static boolean isSupportedYear(Integer year) {
+        if (year == null) return true;
+        return year >= EARLIEST_YEAR && year <= LATEST_VERIFIED_YEAR;
     }
 
     public CountryEmissionsRecord fetchCountryEmissions(Integer year, String country) {
         int finalYear = resolveYear(year);
+
+        if (!isSupportedYear(finalYear)) {
+            log.info("Requested year {} is outside verified Climate TRACE coverage window ({}-{})",
+                    finalYear, EARLIEST_YEAR, LATEST_VERIFIED_YEAR);
+            return null;
+        }
+
         StringBuilder url = new StringBuilder(COUNTRY_EMISSIONS_URL)
                 .append("?since=").append(finalYear)
                 .append("&to=").append(finalYear);
@@ -70,7 +85,10 @@ public class ClimateTraceClient {
                 }
                 return null;
             } else if (root.isObject()) {
-                return mapper.treeToValue(root, CountryEmissionsRecord.class);
+                if (root.has("emissions")) {
+                    return mapper.treeToValue(root, CountryEmissionsRecord.class);
+                }
+                return null;
             }
         } catch (Exception e) {
             log.error("Failed to fetch country emissions for country={}, year={}: {}", country, finalYear, e.getMessage());
@@ -80,6 +98,11 @@ public class ClimateTraceClient {
 
     public List<AssetSectorRecord> fetchAssetSectorEmissions(Integer year, String country, String gas) {
         int finalYear = resolveYear(year);
+
+        if (!isSupportedYear(finalYear)) {
+            return Collections.emptyList();
+        }
+
         String finalGas = (gas != null && !gas.isBlank()) ? gas : "co2e_100yr";
 
         StringBuilder url = new StringBuilder(ASSETS_EMISSIONS_URL)
@@ -113,6 +136,8 @@ public class ClimateTraceClient {
                     if (arr.isArray()) {
                         return mapper.readValue(arr.traverse(), new TypeReference<List<AssetSectorRecord>>() {});
                     }
+                } else if (root.has("all") && root.get("all").isArray()) {
+                    return mapper.readValue(root.get("all").traverse(), new TypeReference<List<AssetSectorRecord>>() {});
                 } else {
                     root.fields().forEachRemaining(entry -> {
                         if (entry.getValue().isArray()) {
@@ -144,6 +169,11 @@ public class ClimateTraceClient {
 
         int finalLimit = (limit != null && limit > 0) ? limit : 4000;
         int finalYear = resolveYear(year);
+
+        if (!isSupportedYear(finalYear)) {
+            return Collections.emptyList();
+        }
+
         String finalGas = (gas != null && !gas.isBlank()) ? gas : "co2e_100yr";
 
         StringBuilder url = new StringBuilder(SOURCES_URL)

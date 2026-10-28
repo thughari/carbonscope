@@ -111,6 +111,10 @@ public class GeminiService {
             }
         }
 
+        String perCapitaStr = overview.getPerCapitaTonnes() != null
+                ? String.format("%.2f Tonnes/person", overview.getPerCapitaTonnes())
+                : "N/A (unmapped)";
+
         String prompt = """
                 You are CarbonScope AI, a senior environmental data analyst powered by verified multi-source carbon data.
 
@@ -120,7 +124,7 @@ public class GeminiService {
                 GLOBAL RANK: %s
                 TOTAL EMISSIONS: %.2f Mt CO2e (%.2f%% of Global Emissions)
                 GLOBAL TOTAL: %.2f Mt CO2e
-                PER-CAPITA FOOTPRINT: %.2f Tonnes/person (World Benchmark: 4.7 t/person)
+                PER-CAPITA FOOTPRINT: %s (World Benchmark: 4.7 t/person)
                 POWER GRID CARBON INTENSITY: %s
                 CLEAN ELECTRICITY SHARE: %s
 
@@ -141,10 +145,11 @@ public class GeminiService {
                 2. Cite specific numbers (Mt, percentages, per-capita, sector rankings) from the verified dataset above.
                 3. Highlight decarbonization priorities, power sector intensity, and high-impact mitigation opportunities.
                 4. Maintain scientific accuracy and actionable clarity.
+                5. If any metric is marked N/A or data is unavailable, explicitly state that empirical data is unavailable; do not extrapolate or invent statistics.
                 """.formatted(
                 locationLabel, overview.getCountry() != null ? overview.getCountry() : "Global",
                 finalYear, rankStr, overview.getTotalEmissionsMt(), overview.getPercentageOfGlobal(),
-                overview.getWorldEmissionsMt(), overview.getPerCapitaTonnes(),
+                overview.getWorldEmissionsMt(), perCapitaStr,
                 overview.getGridCarbonIntensityGco2PerKwh() != null ? overview.getGridCarbonIntensityGco2PerKwh() + " gCO2/kWh" : "N/A",
                 overview.getCleanPowerPercentage() != null ? overview.getCleanPowerPercentage() + "%" : "N/A",
                 sectorsText.toString(),
@@ -161,13 +166,31 @@ public class GeminiService {
         EmissionsOverviewResponse overview = analyticsService.getEmissionsOverview(year, request.country(), request.continent(), "co2e_100yr");
 
         String loc = overview.getCountryName() != null ? overview.getCountryName() : "Global";
+
+        if ("DATA_UNAVAILABLE".equalsIgnoreCase(overview.getDataSourceStatus())) {
+            return String.format("""
+                    ### 🌍 CarbonScope Climate Analysis: %s (%d)
+
+                    > ⚠️ **Status: Data Unavailable**
+                    > %s
+
+                    Please select a reporting period between **2015 and 2026** to explore verified empirical satellite observations from Climate TRACE.
+                    """,
+                    loc, year,
+                    overview.getDataQualityNotes() != null ? overview.getDataQualityNotes() : "No empirical observations available for the requested parameters.");
+        }
+
         String rank = overview.getCountryRank() != null ? ("#" + overview.getCountryRank() + " globally") : "Global Summary";
 
         StringBuilder sb = new StringBuilder();
         sb.append(String.format("### 🌍 CarbonScope Climate Analysis: %s (%d)\n\n", loc, year));
         sb.append(String.format("- **Total Carbon Footprint**: **%.2f Mt CO₂e** (%s)\n", overview.getTotalEmissionsMt(), rank));
         sb.append(String.format("- **Global Share**: **%.2f%%** of world emissions (World Total: %.1f Mt)\n", overview.getPercentageOfGlobal(), overview.getWorldEmissionsMt()));
-        sb.append(String.format("- **Per-Capita Impact**: **%.2f t/person** (Global average is 4.7 t/person)\n", overview.getPerCapitaTonnes()));
+        if (overview.getPerCapitaTonnes() != null) {
+            sb.append(String.format("- **Per-Capita Impact**: **%.2f t/person** (Global average is 4.7 t/person)\n", overview.getPerCapitaTonnes()));
+        } else {
+            sb.append("- **Per-Capita Impact**: *N/A (National population or per-capita data unmapped)*\n");
+        }
 
         if (overview.getGridCarbonIntensityGco2PerKwh() != null) {
             sb.append(String.format("- **Power Grid Intensity**: **%.0f gCO₂/kWh** with **%.1f%% clean electricity** (Ember Climate data)\n",
@@ -182,7 +205,9 @@ public class GeminiService {
             });
         }
 
-        sb.append("\n> **Verified Multi-Source Consensus**: Data compiled from *Climate TRACE* (facility & national satellite observation), *Global Carbon Project / Our World in Data* (per-capita benchmarks), and *Ember Climate* (grid intensity).");
+        sb.append(String.format("\n> **Data Provenance**: %s • Source: %s",
+                overview.getDataReliability() != null ? overview.getDataReliability() : "Verified Climate Data",
+                overview.getProvenance() != null ? overview.getProvenance().getSourceName() : "Climate TRACE v6"));
 
         return sb.toString();
     }

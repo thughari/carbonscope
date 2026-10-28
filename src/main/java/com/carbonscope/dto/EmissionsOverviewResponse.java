@@ -23,7 +23,7 @@ public class EmissionsOverviewResponse {
     private double worldEmissionsMt;
     private Integer countryRank;
     private double percentageOfGlobal;
-    private double perCapitaTonnes;
+    private Double perCapitaTonnes;
     private Double gridCarbonIntensityGco2PerKwh;
     private Double cleanPowerPercentage;
     private Map<String, Double> gasBreakdownMt;
@@ -32,5 +32,9 @@ public class EmissionsOverviewResponse {
     private List<SourceInfoItem> verifiedSources;
     private String dataReliability;
     private String dataSourceStatus;
+    private String temporalCompleteness;
+    private boolean isPartialOrProvisional;
+    private ProvenanceDto provenance;
+    private String dataQualityNotes;
     private long responseTimeMs;
 }

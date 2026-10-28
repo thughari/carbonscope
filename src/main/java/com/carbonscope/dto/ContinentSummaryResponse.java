@@ -11,4 +11,6 @@ public class ContinentSummaryResponse {
     private String filterSector;
     private String gas;
     private int year;
+    private String dataSourceStatus;
+    private ProvenanceDto provenance;
 }

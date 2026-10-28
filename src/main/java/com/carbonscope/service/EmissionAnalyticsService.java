@@ -45,9 +45,68 @@ public class EmissionAnalyticsService {
             return cached;
         }
 
+        // 1. Validate temporal boundary
+        if (year != null && !ClimateTraceClient.isSupportedYear(year)) {
+            String countryName = reliableSources.getCountryName(countryCode);
+            String notes = String.format("Requested year %d is outside empirical satellite observation coverage (%d-%d). No synthetic values generated.",
+                    year, ClimateTraceClient.EARLIEST_YEAR, ClimateTraceClient.LATEST_VERIFIED_YEAR);
+
+            ProvenanceDto provenance = ProvenanceDto.builder()
+                    .status("DATA_UNAVAILABLE")
+                    .reportingYear(year)
+                    .temporalCompleteness("UNAVAILABLE")
+                    .isPartialOrProvisional(false)
+                    .empirical(false)
+                    .qualityNotes(notes)
+                    .build();
+
+            EmissionsOverviewResponse unavailableResponse = EmissionsOverviewResponse.builder()
+                    .country(countryCode)
+                    .countryName(countryName)
+                    .continent(continent != null ? continent : ContinentUtil.getContinent(countryCode))
+                    .year(year)
+                    .gas(finalGas)
+                    .totalEmissionsTonnes(0.0)
+                    .totalEmissionsMt(0.0)
+                    .worldEmissionsMt(0.0)
+                    .countryRank(null)
+                    .percentageOfGlobal(0.0)
+                    .perCapitaTonnes(null)
+                    .gridCarbonIntensityGco2PerKwh(null)
+                    .cleanPowerPercentage(null)
+                    .gasBreakdownMt(Collections.emptyMap())
+                    .sectorTotalsMt(Collections.emptyMap())
+                    .historicalTrend(buildHistoricalTrend(countryCode, finalGas))
+                    .verifiedSources(reliableSources.getAllVerifiedSources())
+                    .dataReliability("Data Unavailable")
+                    .dataSourceStatus("DATA_UNAVAILABLE")
+                    .temporalCompleteness("UNAVAILABLE")
+                    .isPartialOrProvisional(false)
+                    .provenance(provenance)
+                    .dataQualityNotes(notes)
+                    .responseTimeMs(System.currentTimeMillis() - start)
+                    .build();
+
+            cacheService.put(cacheKey, unavailableResponse);
+            return unavailableResponse;
+        }
+
+        // 2. Fetch live satellite records
         CountryEmissionsRecord countryRecord = null;
         CountryEmissionsRecord worldRecord = null;
-        String status = "LIVE_API";
+        String status = "LIVE_API_OBSERVATION";
+
+        // Determine provisional / partial year status
+        String temporalCompleteness = (finalYear <= 2024)
+                ? "CONSOLIDATED_ANNUAL"
+                : (finalYear == 2025 ? "PROVISIONAL_ANNUAL" : "PARTIAL_YEAR_OBSERVATION");
+        boolean isPartialOrProvisional = (finalYear >= 2025);
+
+        String qualityNotes = (finalYear == 2026)
+                ? "Provisional year-to-date satellite observations (~7 months elapsed), not an annualized complete accounting total."
+                : (finalYear == 2025
+                    ? "Preliminary 2025 annual estimate pending final intergovernmental validation."
+                    : "Verified 12-month consolidated empirical satellite inventory (Climate TRACE v6).");
 
         try {
             if (countryCode != null) {
@@ -55,7 +114,7 @@ public class EmissionAnalyticsService {
             }
             worldRecord = client.fetchCountryEmissions(finalYear, null);
         } catch (Exception e) {
-            log.warn("Error fetching emissions record: {}", e.getMessage());
+            log.warn("Error fetching emissions record from external API: {}", e.getMessage());
         }
 
         double totalEmissionsTonnes = 0;
@@ -72,34 +131,63 @@ public class EmissionAnalyticsService {
         Map<String, Double> gasBreakdownMt = new LinkedHashMap<>();
 
         if (countryCode != null) {
-            if (countryRecord != null && countryRecord.getEmissions() != null) {
+            if (countryRecord != null && countryRecord.getEmissions() != null && !countryRecord.getEmissions().isEmpty()) {
                 Map<String, Double> em = countryRecord.getEmissions();
                 totalEmissionsTonnes = em.getOrDefault(finalGas, em.getOrDefault("co2e_100yr", 0.0));
                 rank = countryRecord.getRank();
-
                 em.forEach((k, v) -> gasBreakdownMt.put(k, v / 1_000_000.0));
             } else {
-                status = "VERIFIED_BENCHMARK";
+                // Check if reference benchmark exists for calibrated baseline year (2024)
                 Double baselineMt = reliableSources.getBaselineTotalMt(countryCode);
-                totalEmissionsTonnes = (baselineMt != null ? baselineMt : 500.0) * 1_000_000.0;
-                rank = reliableSources.getBaselineRank(countryCode);
-                gasBreakdownMt.put(finalGas, totalEmissionsTonnes / 1_000_000.0);
+                if (finalYear == ClimateTraceClient.DEFAULT_YEAR && baselineMt != null) {
+                    status = "STATIC_REFERENCE_BENCHMARK";
+                    totalEmissionsTonnes = baselineMt * 1_000_000.0;
+                    rank = reliableSources.getBaselineRank(countryCode);
+                    gasBreakdownMt.put(finalGas, totalEmissionsTonnes / 1_000_000.0);
+                    qualityNotes = "Live satellite API temporarily unavailable; serving calibrated 2024 consensus benchmark (Ember/GCP).";
+                    temporalCompleteness = "CONSOLIDATED_ANNUAL";
+                    isPartialOrProvisional = false;
+                } else {
+                    status = "DATA_UNAVAILABLE";
+                    totalEmissionsTonnes = 0.0;
+                    qualityNotes = String.format("No empirical observations or verified benchmarks found for %s in %d.",
+                            countryCode, finalYear);
+                    temporalCompleteness = "UNAVAILABLE";
+                    isPartialOrProvisional = false;
+                }
             }
         } else {
             // Global view
-            totalEmissionsTonnes = worldEmissionsMt * 1_000_000.0;
-            if (worldRecord != null && worldRecord.getEmissions() != null) {
+            if (worldRecord != null && worldRecord.getEmissions() != null && !worldRecord.getEmissions().isEmpty()) {
+                totalEmissionsTonnes = worldEmissionsMt * 1_000_000.0;
                 worldRecord.getEmissions().forEach((k, v) -> gasBreakdownMt.put(k, v / 1_000_000.0));
+            } else {
+                if (finalYear == ClimateTraceClient.DEFAULT_YEAR) {
+                    status = "STATIC_REFERENCE_BENCHMARK";
+                    totalEmissionsTonnes = worldEmissionsMt * 1_000_000.0;
+                    qualityNotes = "Live API unavailable; serving global reference consensus total (57,582 Mt CO2e).";
+                    temporalCompleteness = "CONSOLIDATED_ANNUAL";
+                    isPartialOrProvisional = false;
+                } else {
+                    status = "DATA_UNAVAILABLE";
+                    totalEmissionsTonnes = 0.0;
+                    worldEmissionsMt = 0.0;
+                    qualityNotes = "No empirical observations available for Global in year " + finalYear + ".";
+                    temporalCompleteness = "UNAVAILABLE";
+                    isPartialOrProvisional = false;
+                }
             }
         }
 
         double totalEmissionsMt = totalEmissionsTonnes / 1_000_000.0;
-        double percentageOfGlobal = (worldEmissionsMt > 0) ? (totalEmissionsMt / worldEmissionsMt) * 100.0 : 0.0;
-        if (countryCode == null) {
+        double percentageOfGlobal = (worldEmissionsMt > 0 && totalEmissionsMt > 0)
+                ? (totalEmissionsMt / worldEmissionsMt) * 100.0
+                : 0.0;
+        if (countryCode == null && totalEmissionsMt > 0) {
             percentageOfGlobal = 100.0;
         }
 
-        // Sector summary
+        // 3. Fetch empirical sector summary
         Map<String, Double> sectorTotalsMt = new LinkedHashMap<>();
         try {
             SectorSummaryResponse sectorRes = getSectorSummary(finalYear, countryCode, continent, finalGas, 4000);
@@ -110,13 +198,37 @@ public class EmissionAnalyticsService {
             log.warn("Error getting sector summary for overview: {}", e.getMessage());
         }
 
-        // Multi-year historical trend (2021 to 2025)
+        // 4. Multi-year empirical trajectory
         List<TrendPointDto> trend = buildHistoricalTrend(countryCode, finalGas);
 
         String countryName = reliableSources.getCountryName(countryCode);
-        double perCapita = reliableSources.getPerCapitaEmissions(countryCode);
-        Double gridIntensity = reliableSources.getGridCarbonIntensity(countryCode);
-        Double cleanPower = reliableSources.getCleanPowerShare(countryCode);
+        Double perCapita = "DATA_UNAVAILABLE".equals(status) ? null : reliableSources.getPerCapitaEmissions(countryCode);
+        Double gridIntensity = "DATA_UNAVAILABLE".equals(status) ? null : reliableSources.getGridCarbonIntensity(countryCode);
+        Double cleanPower = "DATA_UNAVAILABLE".equals(status) ? null : reliableSources.getCleanPowerShare(countryCode);
+
+        // 5. Scientific data reliability label
+        String dataReliability;
+        boolean isEmpirical = "LIVE_API_OBSERVATION".equals(status);
+        if ("LIVE_API_OBSERVATION".equals(status)) {
+            dataReliability = isPartialOrProvisional
+                    ? (finalYear == 2026 ? "Provisional Satellite Observation (Partial Year YTD)" : "Provisional Annual Observation (Climate TRACE)")
+                    : "Empirical Satellite Inventory (Climate TRACE v6)";
+        } else if ("STATIC_REFERENCE_BENCHMARK".equals(status)) {
+            dataReliability = "Calibrated Reference Benchmark (Ember / GCP Consensus)";
+        } else {
+            dataReliability = "Data Unavailable";
+        }
+
+        ProvenanceDto provenance = ProvenanceDto.builder()
+                .status(status)
+                .sourceName(isEmpirical ? "Climate TRACE v6 Satellite & AI Observation" : "Global Carbon Project & Ember Climate")
+                .methodology(isEmpirical ? "Direct multi-spectral satellite sensors and AI facility tracking" : "Peer-reviewed national energy balance and emission consensus")
+                .reportingYear(finalYear)
+                .temporalCompleteness(temporalCompleteness)
+                .isPartialOrProvisional(isPartialOrProvisional)
+                .empirical(isEmpirical)
+                .qualityNotes(qualityNotes)
+                .build();
 
         EmissionsOverviewResponse response = EmissionsOverviewResponse.builder()
                 .country(countryCode)
@@ -136,8 +248,12 @@ public class EmissionAnalyticsService {
                 .sectorTotalsMt(sectorTotalsMt)
                 .historicalTrend(trend)
                 .verifiedSources(reliableSources.getAllVerifiedSources())
-                .dataReliability("98.4% Empirical Satellite + Scientific Consensus")
+                .dataReliability(dataReliability)
                 .dataSourceStatus(status)
+                .temporalCompleteness(temporalCompleteness)
+                .isPartialOrProvisional(isPartialOrProvisional)
+                .provenance(provenance)
+                .dataQualityNotes(qualityNotes)
                 .responseTimeMs(System.currentTimeMillis() - start)
                 .build();
 
@@ -150,8 +266,8 @@ public class EmissionAnalyticsService {
         List<TrendPointDto> cached = cacheService.get(cacheKey);
         if (cached != null) return cached;
 
-        int startYear = 2015;
-        int endYear = ClimateTraceClient.resolveYear(null);
+        int startYear = ClimateTraceClient.EARLIEST_YEAR;
+        int endYear = ClimateTraceClient.LATEST_VERIFIED_YEAR;
         List<Integer> yearList = IntStream.rangeClosed(startYear, endYear).boxed().toList();
 
         List<CompletableFuture<TrendPointDto>> futures = yearList.stream()
@@ -190,17 +306,34 @@ public class EmissionAnalyticsService {
             log.debug("Trend year fetch failed for {}: {}", y, e.getMessage());
         }
 
+        boolean isProv = (y >= 2025);
+        String tempComp = (y <= 2024) ? "CONSOLIDATED_ANNUAL" : (y == 2025 ? "PROVISIONAL_ANNUAL" : "PARTIAL_YEAR_OBSERVATION");
+
+        // No synthetic growth extrapolation (0.015 factor removed).
         if (cMt <= 0) {
-            // Calibrated historical projection if year is unavailable
-            Double baseline = reliableSources.getBaselineTotalMt(countryCode);
-            double base = baseline != null ? baseline : (countryCode == null ? 57582.0 : 450.0);
-            double factor = 1.0 + (y - 2024) * 0.015;
-            cMt = base * factor;
-            wMt = 57582.0 * factor;
+            return TrendPointDto.builder()
+                    .year(y)
+                    .emissionsMt(0.0)
+                    .worldEmissionsMt(wMt)
+                    .shareOfGlobal(0.0)
+                    .provenance("DATA_UNAVAILABLE")
+                    .available(false)
+                    .isProvisional(isProv)
+                    .temporalCompleteness(tempComp)
+                    .build();
         }
 
         double share = (wMt > 0) ? (cMt / wMt) * 100.0 : 0.0;
-        return new TrendPointDto(y, cMt, wMt, share);
+        return TrendPointDto.builder()
+                .year(y)
+                .emissionsMt(cMt)
+                .worldEmissionsMt(wMt)
+                .shareOfGlobal(share)
+                .provenance("LIVE_API_OBSERVATION")
+                .available(true)
+                .isProvisional(isProv)
+                .temporalCompleteness(tempComp)
+                .build();
     }
 
     public SectorSummaryResponse getSectorSummary(Integer year,
@@ -219,18 +352,16 @@ public class EmissionAnalyticsService {
 
         Map<String, Double> sectorTotals = new LinkedHashMap<>();
 
-        // 1. Try comprehensive nationwide asset sector breakdown first
-        if (countryCode != null) {
-            List<AssetSectorRecord> assetRecords = client.fetchAssetSectorEmissions(finalYear, countryCode, finalGas);
-            if (!assetRecords.isEmpty()) {
-                for (AssetSectorRecord rec : assetRecords) {
-                    String standardSector = mapToStandardSector(rec.getSector());
-                    sectorTotals.merge(standardSector, rec.getEmissions(), Double::sum);
-                }
+        // 1. Try nationwide / global asset sector breakdown
+        List<AssetSectorRecord> assetRecords = client.fetchAssetSectorEmissions(finalYear, countryCode, finalGas);
+        if (assetRecords != null && !assetRecords.isEmpty()) {
+            for (AssetSectorRecord rec : assetRecords) {
+                String standardSector = mapToStandardSector(rec.getSector());
+                sectorTotals.merge(standardSector, rec.getEmissions(), Double::sum);
             }
         }
 
-        // 2. If country is null or asset sectors was empty, fall back to point sources
+        // 2. If asset sectors was empty, fall back to point sources
         if (sectorTotals.isEmpty()) {
             List<EmissionSource> sources = client.fetchSources(finalYear, countryCode, continent, null, null, finalGas, limit);
             if (sources != null && !sources.isEmpty()) {
@@ -244,19 +375,9 @@ public class EmissionAnalyticsService {
             }
         }
 
-        // 3. If still empty, supply calibrated baseline sector ratios
-        if (sectorTotals.isEmpty()) {
-            Double baselineMt = reliableSources.getBaselineTotalMt(countryCode);
-            double baseTonnes = (baselineMt != null ? baselineMt : 3500.0) * 1_000_000.0;
-            sectorTotals.put("power", baseTonnes * 0.38);
-            sectorTotals.put("industry", baseTonnes * 0.24);
-            sectorTotals.put("transportation", baseTonnes * 0.16);
-            sectorTotals.put("agriculture", baseTonnes * 0.12);
-            sectorTotals.put("fossil-fuel-operations", baseTonnes * 0.06);
-            sectorTotals.put("waste", baseTonnes * 0.04);
-        }
+        // No synthetic sector distributions. Real observations or honest DATA_UNAVAILABLE.
+        boolean isAvailable = !sectorTotals.isEmpty();
 
-        // Sort descending by emissions quantity and filter out non-positive
         Map<String, Double> sorted = sectorTotals.entrySet().stream()
                 .filter(e -> e.getValue() != null && e.getValue() > 0)
                 .sorted(Map.Entry.comparingByValue(Comparator.reverseOrder()))
@@ -267,12 +388,30 @@ public class EmissionAnalyticsService {
                         LinkedHashMap::new
                 ));
 
+        String temporalCompleteness = (finalYear <= 2024)
+                ? "CONSOLIDATED_ANNUAL"
+                : (finalYear == 2025 ? "PROVISIONAL_ANNUAL" : "PARTIAL_YEAR_OBSERVATION");
+
+        ProvenanceDto provenance = ProvenanceDto.builder()
+                .status(isAvailable ? "LIVE_API_OBSERVATION" : "DATA_UNAVAILABLE")
+                .sourceName(isAvailable ? "Climate TRACE v6 Asset Inventories" : "None")
+                .reportingYear(finalYear)
+                .temporalCompleteness(isAvailable ? temporalCompleteness : "UNAVAILABLE")
+                .isPartialOrProvisional(finalYear >= 2025)
+                .empirical(isAvailable)
+                .qualityNotes(isAvailable
+                        ? "Sector totals aggregated from verified satellite asset observations."
+                        : "No empirical sector asset records found for the requested criteria.")
+                .build();
+
         SectorSummaryResponse res = new SectorSummaryResponse();
         res.setSectorTotals(sorted);
         res.setFilterCountry(countryCode);
         res.setFilterContinent(continent);
         res.setGas(finalGas);
         res.setYear(finalYear);
+        res.setDataSourceStatus(isAvailable ? "LIVE_API_OBSERVATION" : "DATA_UNAVAILABLE");
+        res.setProvenance(provenance);
 
         cacheService.put(cacheKey, res);
         return res;
@@ -302,9 +441,11 @@ public class EmissionAnalyticsService {
         // 1. Try asset records
         if (countryCode != null) {
             List<AssetSectorRecord> assetRecords = client.fetchAssetSectorEmissions(finalYear, countryCode, finalGas);
-            for (AssetSectorRecord rec : assetRecords) {
-                if (mapToStandardSector(rec.getSector()).equalsIgnoreCase(sector)) {
-                    subsectorTotals.merge(rec.getSector(), rec.getEmissions(), Double::sum);
+            if (assetRecords != null) {
+                for (AssetSectorRecord rec : assetRecords) {
+                    if (mapToStandardSector(rec.getSector()).equalsIgnoreCase(sector)) {
+                        subsectorTotals.merge(rec.getSector(), rec.getEmissions(), Double::sum);
+                    }
                 }
             }
         }
@@ -322,36 +463,10 @@ public class EmissionAnalyticsService {
             }
         }
 
-        // 3. If still empty, generate standard subsectors
-        if (subsectorTotals.isEmpty()) {
-            double dummyBase = 250_000_000.0;
-            switch (sector.toLowerCase()) {
-                case "power" -> {
-                    subsectorTotals.put("electricity-generation", dummyBase * 0.85);
-                    subsectorTotals.put("heat-plants", dummyBase * 0.15);
-                }
-                case "transportation" -> {
-                    subsectorTotals.put("road-transportation", dummyBase * 0.72);
-                    subsectorTotals.put("domestic-aviation", dummyBase * 0.12);
-                    subsectorTotals.put("international-shipping", dummyBase * 0.10);
-                    subsectorTotals.put("railways", dummyBase * 0.06);
-                }
-                case "industry" -> {
-                    subsectorTotals.put("iron-and-steel", dummyBase * 0.40);
-                    subsectorTotals.put("cement", dummyBase * 0.30);
-                    subsectorTotals.put("chemicals", dummyBase * 0.20);
-                    subsectorTotals.put("aluminum", dummyBase * 0.10);
-                }
-                case "fossil-fuel-operations" -> {
-                    subsectorTotals.put("coal-mining", dummyBase * 0.50);
-                    subsectorTotals.put("oil-and-gas-production", dummyBase * 0.35);
-                    subsectorTotals.put("oil-and-gas-refining", dummyBase * 0.15);
-                }
-                default -> subsectorTotals.put(sector + "-general", dummyBase);
-            }
-        }
+        boolean isAvailable = !subsectorTotals.isEmpty();
 
         Map<String, Double> sorted = subsectorTotals.entrySet().stream()
+                .filter(e -> e.getValue() != null && e.getValue() > 0)
                 .sorted(Map.Entry.comparingByValue(Comparator.reverseOrder()))
                 .collect(Collectors.toMap(
                         Map.Entry::getKey,
@@ -360,6 +475,18 @@ public class EmissionAnalyticsService {
                         LinkedHashMap::new
                 ));
 
+        ProvenanceDto provenance = ProvenanceDto.builder()
+                .status(isAvailable ? "LIVE_API_OBSERVATION" : "DATA_UNAVAILABLE")
+                .sourceName(isAvailable ? "Climate TRACE v6 Asset Inventories" : "None")
+                .reportingYear(finalYear)
+                .temporalCompleteness(isAvailable ? (finalYear <= 2024 ? "CONSOLIDATED_ANNUAL" : "PROVISIONAL_OBSERVATION") : "UNAVAILABLE")
+                .isPartialOrProvisional(finalYear >= 2025)
+                .empirical(isAvailable)
+                .qualityNotes(isAvailable
+                        ? "Granular subsector asset totals from Climate TRACE observations."
+                        : "No empirical subsector observations available for " + sector + ".")
+                .build();
+
         SubsectorSummaryResponse res = new SubsectorSummaryResponse();
         res.setSector(sector);
         res.setSubsectorTotals(sorted);
@@ -367,6 +494,8 @@ public class EmissionAnalyticsService {
         res.setFilterContinent(continent);
         res.setGas(finalGas);
         res.setYear(finalYear);
+        res.setDataSourceStatus(isAvailable ? "LIVE_API_OBSERVATION" : "DATA_UNAVAILABLE");
+        res.setProvenance(provenance);
 
         cacheService.put(cacheKey, res);
         return res;
@@ -387,7 +516,7 @@ public class EmissionAnalyticsService {
 
         Map<String, Double> countryTotals = new LinkedHashMap<>();
 
-        // Populate verified totals for top emitting countries
+        // Populate verified reference totals for top emitting countries (2024 calibrated benchmark)
         for (String code : TOP_EMITTER_CODES) {
             if (continent != null && !continent.isBlank()) {
                 String c = ContinentUtil.getContinent(code);
@@ -395,9 +524,21 @@ public class EmissionAnalyticsService {
             }
 
             Double baselineMt = reliableSources.getBaselineTotalMt(code);
-            double valTonnes = (baselineMt != null ? baselineMt : 300.0) * 1_000_000.0;
-            countryTotals.put(code, valTonnes);
+            if (baselineMt != null) {
+                countryTotals.put(code, baselineMt * 1_000_000.0);
+            }
         }
+
+        ProvenanceDto provenance = ProvenanceDto.builder()
+                .status("STATIC_REFERENCE_BENCHMARK")
+                .sourceName("Global Carbon Project & Climate TRACE 2024 Consensus")
+                .methodology("Calibrated top emitter national baseline totals")
+                .reportingYear(2024)
+                .empirical(false)
+                .temporalCompleteness("CONSOLIDATED_ANNUAL")
+                .isPartialOrProvisional(false)
+                .qualityNotes("Calibrated 2024 reference baselines for top 20 emitter nations.")
+                .build();
 
         CountrySummaryResponse res = new CountrySummaryResponse();
         res.setCountryTotals(countryTotals);
@@ -405,6 +546,8 @@ public class EmissionAnalyticsService {
         res.setFilterContinent(continent);
         res.setGas(finalGas);
         res.setYear(finalYear);
+        res.setDataSourceStatus("STATIC_REFERENCE_BENCHMARK");
+        res.setProvenance(provenance);
 
         cacheService.put(cacheKey, res);
         return res;
@@ -427,16 +570,30 @@ public class EmissionAnalyticsService {
             String cont = ContinentUtil.getContinent(code);
             if (cont != null && !"Unknown".equalsIgnoreCase(cont)) {
                 Double baselineMt = reliableSources.getBaselineTotalMt(code);
-                double valTonnes = (baselineMt != null ? baselineMt : 300.0) * 1_000_000.0;
-                continentTotals.merge(cont, valTonnes, Double::sum);
+                if (baselineMt != null) {
+                    continentTotals.merge(cont, baselineMt * 1_000_000.0, Double::sum);
+                }
             }
         }
+
+        ProvenanceDto provenance = ProvenanceDto.builder()
+                .status("STATIC_REFERENCE_BENCHMARK")
+                .sourceName("Global Carbon Project & Climate TRACE 2024 Consensus")
+                .methodology("Aggregated continental baselines from calibrated national totals")
+                .reportingYear(2024)
+                .empirical(false)
+                .temporalCompleteness("CONSOLIDATED_ANNUAL")
+                .isPartialOrProvisional(false)
+                .qualityNotes("Aggregated 2024 continental reference baselines.")
+                .build();
 
         ContinentSummaryResponse res = new ContinentSummaryResponse();
         res.setContinentTotals(continentTotals);
         res.setFilterSector(sector);
         res.setGas(finalGas);
         res.setYear(finalYear);
+        res.setDataSourceStatus("STATIC_REFERENCE_BENCHMARK");
+        res.setProvenance(provenance);
 
         cacheService.put(cacheKey, res);
         return res;
@@ -450,10 +607,29 @@ public class EmissionAnalyticsService {
                                       String gas,
                                       Integer limit) throws Exception {
 
+        int finalYear = ClimateTraceClient.resolveYear(year);
         List<EmissionSource> sources = client.fetchSources(year, country, continent, sector, subsector, gas, limit);
         if (sources == null) sources = Collections.emptyList();
 
         List<EmissionSource> filtered = filterByCountryAndContinent(sources, country, continent);
+        boolean isAvailable = !filtered.isEmpty();
+
+        String temporalCompleteness = (finalYear <= 2024)
+                ? "CONSOLIDATED_ANNUAL"
+                : (finalYear == 2025 ? "PROVISIONAL_ANNUAL" : "PARTIAL_YEAR_OBSERVATION");
+
+        ProvenanceDto provenance = ProvenanceDto.builder()
+                .status(isAvailable ? "LIVE_API_OBSERVATION" : "DATA_UNAVAILABLE")
+                .sourceName(isAvailable ? "Climate TRACE v7 Point-Source Database" : "None")
+                .methodology("Satellite remote sensing and asset-level facility attribution")
+                .reportingYear(finalYear)
+                .empirical(isAvailable)
+                .temporalCompleteness(isAvailable ? temporalCompleteness : "UNAVAILABLE")
+                .isPartialOrProvisional(finalYear >= 2025)
+                .qualityNotes(isAvailable
+                        ? "Point-source facility observations."
+                        : "No point-source assets found for specified criteria.")
+                .build();
 
         SourcesResponse res = new SourcesResponse();
         res.setSources(filtered);
@@ -462,7 +638,9 @@ public class EmissionAnalyticsService {
         res.setFilterSector(sector);
         res.setFilterSubsector(subsector);
         res.setGas(gas != null ? gas : "co2e_100yr");
-        res.setYear(year != null ? year : 2024);
+        res.setYear(finalYear);
+        res.setDataSourceStatus(isAvailable ? "LIVE_API_OBSERVATION" : "DATA_UNAVAILABLE");
+        res.setProvenance(provenance);
         return res;
     }
 

@@ -14,4 +14,6 @@ public class SourcesResponse {
     private String filterSubsector;
     private String gas;
     private int year;
+    private String dataSourceStatus;
+    private ProvenanceDto provenance;
 }

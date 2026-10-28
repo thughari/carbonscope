@@ -195,9 +195,9 @@ public class ReliableCarbonSourcesService {
         return COUNTRY_NAMES.getOrDefault(code.toUpperCase(), code);
     }
 
-    public double getPerCapitaEmissions(String code) {
+    public Double getPerCapitaEmissions(String code) {
         if (code == null) return PER_CAPITA_EMISSIONS.get("GLOBAL");
-        return PER_CAPITA_EMISSIONS.getOrDefault(code.toUpperCase(), PER_CAPITA_EMISSIONS.get("GLOBAL"));
+        return PER_CAPITA_EMISSIONS.get(code.toUpperCase());
     }
 
     public Double getGridCarbonIntensity(String code) {

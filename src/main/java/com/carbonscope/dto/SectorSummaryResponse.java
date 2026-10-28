@@ -12,4 +12,6 @@ public class SectorSummaryResponse {
 	private String filterContinent; 
 	private String gas;
 	private int year;
+	private String dataSourceStatus;
+	private ProvenanceDto provenance;
 }
